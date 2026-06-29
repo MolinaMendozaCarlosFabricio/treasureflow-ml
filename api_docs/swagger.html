@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>TreasureFlow ML API — Documentación Swagger</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+<style>
+  body { margin: 0; background: #fafafa; }
+  .topbar { display: none; }
+  #print-hint {
+    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    background: #1b1b1b; color: #fff; text-align: center;
+    padding: 10px; font-size: 13px;
+  }
+  @media print { #print-hint { display: none; } }
+</style>
+</head>
+<body>
+<div id="print-hint">
+  TreasureFlow ML API — Documentación generada localmente desde openapi_swagger/openapi.yaml.
+  Para exportar a PDF: Cmd+P &rarr; Guardar como PDF &rarr; figures/api/swagger.pdf
+</div>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+  const spec = {
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TreasureFlow ML API",
+    "description": "Microservicio de clustering geogr\u00e1fico para TreasureFlow. Agrupa publicaciones de residuos en zonas de densidad usando DBSCAN con m\u00e9trica haversine.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "Servidor local de desarrollo"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Inferencia",
+      "description": "Asignaci\u00f3n de zona geogr\u00e1fica a publicaciones nuevas."
+    },
+    {
+      "name": "Historial",
+      "description": "Consulta del log de inferencias ya realizadas."
+    },
+    {
+      "name": "Modelo",
+      "description": "Recarga del modelo activo en memoria."
+    },
+    {
+      "name": "Health",
+      "description": "Estado del servicio."
+    }
+  ],
+  "paths": {
+    "/inference/assign-zone": {
+      "post": {
+        "tags": [
+          "Inferencia"
+        ],
+        "summary": "Asignar zona geogr\u00e1fica a una publicaci\u00f3n",
+        "description": "Recibe las coordenadas de una publicaci\u00f3n de residuos y retorna la zona DBSCAN m\u00e1s cercana. Si la publicaci\u00f3n est\u00e1 fuera del radio de cualquier zona (`eps_meters`) retorna `zone_id: null` y `assigned: false`. En cold start (sin modelo activo) retorna `mode: 'no_model'`.",
+        "operationId": "assignZone",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InferenceRequest"
+              },
+              "example": {
+                "publication_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "lat": 19.432608,
+                "lng": -99.133209
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado de la asignaci\u00f3n de zona.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InferenceResponse"
+                },
+                "example": {
+                  "zone_id": 2,
+                  "distance_meters": 184.32,
+                  "model_version": "v1.0",
+                  "assigned": true,
+                  "mode": "normal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error de validaci\u00f3n (lat/lng fuera de rango).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inference/history": {
+      "get": {
+        "tags": [
+          "Historial"
+        ],
+        "summary": "Historial de inferencias realizadas",
+        "description": "Consulta paginada del log de inferencias almacenado en BD Almac\u00e9n. Soporta filtros por `zone_id`, `assigned` y `from_date` (ISO YYYY-MM-DD).",
+        "operationId": "getHistory",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "M\u00e1ximo de resultados por p\u00e1gina",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 500
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "N\u00famero de registros a omitir",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "zone_id",
+            "in": "query",
+            "description": "Filtrar por zona espec\u00edfica",
+            "schema": {
+              "type": "integer",
+              "nullable": true
+            }
+          },
+          {
+            "name": "assigned",
+            "in": "query",
+            "description": "Filtrar por asignaci\u00f3n exitosa",
+            "schema": {
+              "type": "boolean",
+              "nullable": true
+            }
+          },
+          {
+            "name": "from_date",
+            "in": "query",
+            "description": "Fecha m\u00ednima ISO YYYY-MM-DD",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "P\u00e1gina del historial de inferencias.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reload-model": {
+      "post": {
+        "tags": [
+          "Modelo"
+        ],
+        "summary": "Recargar centroides del modelo activo",
+        "description": "Uso interno \u2014 llamado por Persona 2 (training server) tras registrar una nueva versi\u00f3n aprobada. Recarga los centroides desde BD Almac\u00e9n sin reiniciar el servicio.",
+        "operationId": "reloadModel",
+        "responses": {
+          "200": {
+            "description": "Centroides recargados en memoria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReloadModelResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "version_loaded": "v1.1",
+                  "n_zones": 5
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Estado del servicio",
+        "description": "Verifica que el servicio est\u00e9 activo e indica el modelo cargado en memoria.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Estado actual del servicio y del modelo en memoria.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "active_model": "v1.1",
+                  "n_zones_in_memory": 5,
+                  "mode": "normal"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "InferenceRequest": {
+        "type": "object",
+        "required": [
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "publication_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Identificador de la publicaci\u00f3n (UUID), opcional."
+          },
+          "lat": {
+            "type": "number",
+            "format": "float",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitud en grados decimales."
+          },
+          "lng": {
+            "type": "number",
+            "format": "float",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitud en grados decimales."
+          }
+        }
+      },
+      "InferenceResponse": {
+        "type": "object",
+        "required": [
+          "assigned",
+          "mode"
+        ],
+        "properties": {
+          "zone_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Zona asignada, o null si la publicaci\u00f3n es un outlier o no hay modelo."
+          },
+          "distance_meters": {
+            "type": "number",
+            "format": "float",
+            "nullable": true,
+            "description": "Distancia haversine en metros al centroide m\u00e1s cercano."
+          },
+          "model_version": {
+            "type": "string",
+            "nullable": true,
+            "description": "Versi\u00f3n del modelo activo usado para la inferencia."
+          },
+          "assigned": {
+            "type": "boolean",
+            "description": "True si la distancia est\u00e1 dentro de eps_meters de alguna zona."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "no_model"
+            ],
+            "description": "'no_model' si todav\u00eda no hay centroides cargados (cold start)."
+          }
+        }
+      },
+      "InferenceRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "publication_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "lat": {
+            "type": "number",
+            "format": "float"
+          },
+          "lng": {
+            "type": "number",
+            "format": "float"
+          },
+          "zone_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "distance_meters": {
+            "type": "number",
+            "format": "float",
+            "nullable": true
+          },
+          "assigned": {
+            "type": "boolean"
+          },
+          "model_version": {
+            "type": "string",
+            "nullable": true
+          },
+          "inferred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HistoryResponse": {
+        "type": "object",
+        "required": [
+          "total",
+          "results"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "description": "Total de registros que cumplen los filtros (sin paginar)."
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InferenceRecord"
+            }
+          }
+        }
+      },
+      "ReloadModelResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "version_loaded": {
+            "type": "string",
+            "nullable": true
+          },
+          "n_zones": {
+            "type": "integer"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "active_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "n_zones_in_memory": {
+            "type": "integer"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "no_model"
+            ]
+          }
+        }
+      },
+      "HTTPValidationError": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "loc": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "msg": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+  window.onload = function() {
+    window.ui = SwaggerUIBundle({
+      spec: spec,
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: 'BaseLayout',
+      deepLinking: true,
+    });
+  };
+</script>
+</body>
+</html>

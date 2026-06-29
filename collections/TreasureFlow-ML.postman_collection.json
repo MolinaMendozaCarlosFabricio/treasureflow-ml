@@ -1,0 +1,343 @@
+{
+  "info": {
+    "name": "TreasureFlow ML — Colección de Pruebas",
+    "description": "Colección de pruebas para el microservicio de clustering geográfico TreasureFlow ML (DBSCAN + haversine). Cubre inferencia, validación, historial y recarga de modelo.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Inferencia válida — dentro de zona (200)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"publication_id\": \"00000000-0000-0000-0000-000000000999\",\n  \"lat\": 16.7823,\n  \"lng\": -93.1156\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/inference/assign-zone",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "assign-zone"]
+        },
+        "description": "Coordenada tomada del seed data de Zona Norte (Col. Jardines/Bugambilias). Debe caer dentro de eps_meters de algún centroide y devolver assigned: true con un zone_id no nulo."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('La publicación fue asignada a una zona', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.assigned).to.eql(true);",
+              "    pm.expect(json.zone_id).to.not.be.null;",
+              "});",
+              "",
+              "pm.test('Incluye distance_meters y model_version', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json).to.have.property('distance_meters');",
+              "    pm.expect(json).to.have.property('model_version');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Inferencia válida — outlier sin zona (200)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"publication_id\": \"00000000-0000-0000-0000-000000000998\",\n  \"lat\": 16.9500,\n  \"lng\": -93.4000\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/inference/assign-zone",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "assign-zone"]
+        },
+        "description": "Coordenada deliberadamente alejada de las tres zonas conocidas (Norte/Centro/Sur de Tuxtla) para forzar que quede fuera de eps_meters de cualquier centroide. Debe devolver assigned: false y zone_id: null, NO un error — es un resultado válido del modelo."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200 (outlier no es error)', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('No fue asignada a ninguna zona', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.assigned).to.eql(false);",
+              "    pm.expect(json.zone_id).to.be.null;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Payload incompleto — falta lng (422)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"publication_id\": \"00000000-0000-0000-0000-000000000997\",\n  \"lat\": 16.7823\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/inference/assign-zone",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "assign-zone"]
+        },
+        "description": "Falta el campo obligatorio lng. Pydantic debe rechazar la petición con 422 antes de llegar a la lógica de negocio."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 422', function () {",
+              "    pm.response.to.have.status(422);",
+              "});",
+              "",
+              "pm.test('El detalle del error menciona el campo lng', function () {",
+              "    const json = pm.response.json();",
+              "    const detailStr = JSON.stringify(json.detail);",
+              "    pm.expect(detailStr).to.include('lng');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Tipo incorrecto — lat como string (422)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"publication_id\": \"00000000-0000-0000-0000-000000000996\",\n  \"lat\": \"dieciséis\",\n  \"lng\": -93.1156\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/inference/assign-zone",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "assign-zone"]
+        },
+        "description": "lat llega como string no numérico. Pydantic debe rechazar con 422 por fallo de tipo, no intentar castear ni truncar."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 422', function () {",
+              "    pm.response.to.have.status(422);",
+              "});",
+              "",
+              "pm.test('El detalle del error menciona el campo lat', function () {",
+              "    const json = pm.response.json();",
+              "    const detailStr = JSON.stringify(json.detail);",
+              "    pm.expect(detailStr).to.include('lat');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Rango inválido — lat fuera de -90/90 (422)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"publication_id\": \"00000000-0000-0000-0000-000000000995\",\n  \"lat\": 145.0,\n  \"lng\": -93.1156\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/inference/assign-zone",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "assign-zone"]
+        },
+        "description": "lat = 145.0 está fuera del rango válido global (-90 a 90). Pydantic (confloat ge=-90, le=90) debe rechazar con 422."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 422', function () {",
+              "    pm.response.to.have.status(422);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Historial paginado (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/inference/history?limit=10&offset=0",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "history"],
+          "query": [
+            { "key": "limit", "value": "10" },
+            { "key": "offset", "value": "0" }
+          ]
+        },
+        "description": "Consulta el historial de inferencias con paginación básica. Debe incluir las inferencias generadas por los casos 1 y 2 de esta colección (ejecutar después de esos casos)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Incluye total y results', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json).to.have.property('total');",
+              "    pm.expect(json).to.have.property('results');",
+              "    pm.expect(json.results).to.be.an('array');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Historial con filtro por zone_id (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/inference/history?zone_id=0&limit=20",
+          "host": ["{{base_url}}"],
+          "path": ["inference", "history"],
+          "query": [
+            { "key": "zone_id", "value": "0" },
+            { "key": "limit", "value": "20" }
+          ]
+        },
+        "description": "Filtra el historial solo por zone_id=0. Todos los resultados devueltos deben pertenecer a esa zona; si no hay datos para esa zona, debe devolver una lista vacía sin error (200, no 404)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Todos los resultados pertenecen a zone_id=0 (si hay resultados)', function () {",
+              "    const json = pm.response.json();",
+              "    json.results.forEach(function (item) {",
+              "        pm.expect(item.zone_id).to.eql(0);",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Reload model — interno (200)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/reload-model",
+          "host": ["{{base_url}}"],
+          "path": ["reload-model"]
+        },
+        "description": "Endpoint interno que recarga los centroides activos en memoria sin reiniciar el servicio. Lo invoca normalmente Persona 2 tras registrar un nuevo modelo aprobado."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Confirma versión cargada y número de zonas', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json).to.have.property('version_loaded');",
+              "    pm.expect(json).to.have.property('n_zones');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Health check (200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        },
+        "description": "Estado general del servicio: modelo activo cargado y número de zonas en memoria."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code es 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Reporta status ok', function () {",
+              "    const json = pm.response.json();",
+              "    pm.expect(json.status).to.eql('ok');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}
